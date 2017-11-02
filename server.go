@@ -3,7 +3,6 @@ package main
 import (
 	"compress/gzip"
 	"crypto/subtle"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -33,60 +32,45 @@ func parsePath(r *http.Request) (string, processingOptions, error) {
 	var err error
 
 	path := r.URL.Path
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
-	if len(parts) < 7 {
-		return "", po, errors.New("Invalid path")
-	}
-
-	token := parts[0]
-
-	if err = validatePath(token, strings.TrimPrefix(path, fmt.Sprintf("/%s", token))); err != nil {
-		return "", po, err
-	}
-
-	if r, ok := resizeTypes[parts[1]]; ok {
+	q := r.URL.Query()
+	if r, ok := resizeTypes[q.Get("fit")]; ok {
 		po.resize = r
 	} else {
-		return "", po, fmt.Errorf("Invalid resize type: %s", parts[1])
+		return "", po, fmt.Errorf("Invalid resize type: %s", q.Get("fit"))
 	}
 
-	if po.width, err = strconv.Atoi(parts[2]); err != nil {
-		return "", po, fmt.Errorf("Invalid width: %s", parts[2])
+	if po.width, err = strconv.Atoi(q.Get("w")); err != nil {
+		return "", po, fmt.Errorf("Invalid width: %s", q.Get("w"))
 	}
 
-	if po.height, err = strconv.Atoi(parts[3]); err != nil {
-		return "", po, fmt.Errorf("Invalid height: %s", parts[3])
+	if po.height, err = strconv.Atoi(q.Get("h")); err != nil {
+		return "", po, fmt.Errorf("Invalid height: %s", q.Get("h"))
 	}
 
-	if g, ok := gravityTypes[parts[4]]; ok {
+	if g, ok := gravityTypes[q.Get("crop")]; ok {
 		po.gravity = g
 	} else {
-		return "", po, fmt.Errorf("Invalid gravity: %s", parts[4])
+		return "", po, fmt.Errorf("Invalid gravity: %s", q.Get("crop"))
 	}
 
-	po.enlarge = parts[5] != "0"
+	po.enlarge = q.Get("enlarge") != "0"
 
-	filenameParts := strings.Split(strings.Join(parts[6:], ""), ".")
-
-	if len(filenameParts) < 2 {
+	if q.Get("fm") == "" {
 		po.format = imageTypes["jpg"]
-	} else if f, ok := imageTypes[filenameParts[1]]; ok {
+	} else if f, ok := imageTypes[q.Get("fm")]; ok {
 		po.format = f
 	} else {
-		return "", po, fmt.Errorf("Invalid image format: %s", filenameParts[1])
+		return "", po, fmt.Errorf("Invalid image format: %s", q.Get("fm"))
 	}
 
 	if !vipsTypeSupportSave[po.format] {
 		return "", po, errors.New("Resulting image type not supported")
 	}
 
-	filename, err := base64.RawURLEncoding.DecodeString(filenameParts[0])
-	if err != nil {
-		return "", po, errors.New("Invalid filename encoding")
-	}
+	filename := "http://realla-media.s3-eu-west-1.amazonaws.com" + path
 
-	return string(filename), po, nil
+	return filename, po, nil
 }
 
 func logResponse(status int, msg string) {
@@ -176,18 +160,18 @@ func (h *httpHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Path == "/health" {
-		rw.WriteHeader(200);
-		rw.Write([]byte("imgproxy is running"));
+		rw.WriteHeader(200)
+		rw.Write([]byte("imgproxy is running"))
 		return
 	}
 
 	imgURL, procOpt, err := parsePath(r)
 	if err != nil {
-		panic(newError(404, err.Error(), "Invalid image url"))
+		panic(newError(404, err.Error(), err.Error()))
 	}
 
 	if _, err = url.ParseRequestURI(imgURL); err != nil {
-		panic(newError(404, err.Error(), "Invalid image url"))
+		panic(newError(404, err.Error(), err.Error()))
 	}
 
 	b, imgtype, err := downloadImage(imgURL)
